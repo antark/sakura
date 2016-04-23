@@ -104,7 +104,7 @@ func (src *source) next_token() (tok Token) {
 		case NOTYPE: // 无类型
 			switch ch {
 			case '\t', '\n', '\v', '\f', '\r', ' ': // 空白字符
-			case '(', ')', '{', '}', '+', '-', '*', '/', '=', ';': // 分隔符
+			case '(', ')', '{', '}', '+', '-', '*', '/', ';': // 分隔符
 				token_type = DELIMITER
 				tok.name = string(append(token, ch))
 				return tok
@@ -132,6 +132,54 @@ func (src *source) next_token() (tok Token) {
 				default:
 					src.UnreadRune()
 					tok.name = "|"
+				}
+				token_type = OPERATOR
+				return tok
+			case '!': // !, != 操作符
+				ch, _, _ := src.ReadRune()
+				switch ch {
+				case '=':
+					tok.name = "!="
+				default:
+					src.UnreadRune()
+					tok.name = "!"
+				}
+				token_type = OPERATOR
+				return tok
+			case '=': // =, == 操作符
+				ch, _, _ := src.ReadRune()
+				switch ch {
+				case '=':
+					tok.name = "=="
+				default:
+					src.UnreadRune()
+					tok.name = "="
+				}
+				token_type = OPERATOR
+				return tok
+			case '>': // !, != 操作符
+				ch, _, _ := src.ReadRune()
+				switch ch {
+				case '=':
+					tok.name = ">="
+				case '>':
+					tok.name = ">>"
+				default:
+					src.UnreadRune()
+					tok.name = ">"
+				}
+				token_type = OPERATOR
+				return tok
+			case '<': // !, != 操作符
+				ch, _, _ := src.ReadRune()
+				switch ch {
+				case '=':
+					tok.name = "<="
+				case '<':
+					tok.name = "<<"
+				default:
+					src.UnreadRune()
+					tok.name = "<"
 				}
 				token_type = OPERATOR
 				return tok
@@ -208,7 +256,7 @@ func statement() {
 		// fmt.Println("statement:", symbol_table)
 	default:
 		src.unget_token(token)
-		value := expression()
+		value := expression(1)
 		fmt.Println(value.value)
 	}
 	token = src.next_token()
@@ -233,7 +281,7 @@ func declaration() error {
 	if equal.token_type != IDENTIFIER && equal.name != "=" {
 		return Exception{"declare: = expected"}
 	}
-	value := expression()
+	value := expression(1)
 
 	if err != nil {
 		return *err
@@ -243,21 +291,27 @@ func declaration() error {
 }
 
 // Expression = Term | Term + Term | Term - Term
-func expression() (value Value) {
-	left := term()
+
+var op_levels = map[int][]string{
+	1: []string{"||"},
+	2: []string{"&&"},
+	3: []string{"==", "!=", ">", ">=", "<", "<="},
+	4: []string{"+", "-", "|", "^"},
+	5: []string{"*", "/", "%", "<<", ">>", "&"},
+}
+
+func expression(level int) (value Value) {
+	var target func(int) Value
+	if level < 5 {
+		target = expression
+	} else {
+		target = primary
+	}
+
+	left := target(level + 1)
 	// fmt.Println("----", left.value) // todo
 
-	var ops []string
-	switch left.value_type {
-	case INT_64:
-		ops = append(ops, "+", "-")
-	case FLOAT_64:
-		ops = append(ops, "+", "-")
-	case BOOL:
-		ops = append(ops, "||")
-	case CHARS:
-		ops = append(ops, "+")
-	}
+	var ops []string = op_levels[level]
 
 NEXT:
 	for {
@@ -268,7 +322,7 @@ NEXT:
 			if op.name != op_item {
 				continue
 			}
-			right := term()
+			right := target(level + 1)
 			// fmt.Println("----", right.value) // todo
 			sum := op_values(op.name, left.value, right.value)
 			// fmt.Println("----", sum) // todo
@@ -278,6 +332,48 @@ NEXT:
 		src.unget_token(op)
 		return left
 	}
+}
+
+func primary(level int) (value Value) {
+	token := src.next_token()
+	// fmt.Println("------------", token.name)
+
+	switch token.token_type {
+	// 标识符
+	case IDENTIFIER:
+		value = *symbol_table[token.name]
+	// 数值
+	case NUMBER:
+		switch token.value.(type) {
+		case uint64:
+			value.value_type = INT_64
+		case float64:
+			value.value_type = FLOAT_64
+		}
+		value.value = token.value
+	// 布尔
+	case BOOLEAN:
+		value.value_type = BOOL
+		value.value = token.value
+	// 字符串
+	case STRING:
+		value.value_type = CHARS
+		value.value = token.name
+	default:
+		switch token.name {
+		case "-":
+			value = primary(level)
+			value.value = op_values("-", value.value, nil)
+		case "(":
+			value = expression(1)
+			token = src.next_token()
+			if token.name != ")" {
+				panic(") expected")
+			}
+		case "!":
+		}
+	}
+	return value
 }
 
 func op_values(op string, a interface{}, b interface{}) (value interface{}) {
@@ -314,6 +410,60 @@ func op_values(op string, a interface{}, b interface{}) (value interface{}) {
 			ib := b.(int64)
 			return ia % ib
 		}
+
+		if op == "<<" {
+			ia := uint64(a.(int64))
+			ib := uint64(b.(int64))
+			return ia << ib
+		}
+
+		if op == ">>" {
+			ia := uint64(a.(int64))
+			ib := uint64(b.(int64))
+			return ia >> ib
+		}
+
+		if op == "&" {
+			ia := a.(int64)
+			ib := b.(int64)
+			return ia & ib
+		}
+
+		if op == "^" {
+			ia := a.(int64)
+			ib := b.(int64)
+			return ia ^ ib
+		}
+
+		if op == "|" {
+			ia := a.(int64)
+			ib := b.(int64)
+			return ia | ib
+		}
+
+		if op == ">" {
+			ia := a.(int64)
+			ib := b.(int64)
+			return ia > ib
+		}
+
+		if op == "<" {
+			ia := a.(int64)
+			ib := b.(int64)
+			return ia < ib
+		}
+
+		if op == ">=" {
+			ia := a.(int64)
+			ib := b.(int64)
+			return ia >= ib
+		}
+
+		if op == "<=" {
+			ia := a.(int64)
+			ib := b.(int64)
+			return ia <= ib
+		}
 	}
 
 	if _, yes := a.(float64); yes {
@@ -342,6 +492,29 @@ func op_values(op string, a interface{}, b interface{}) (value interface{}) {
 			ib := b.(float64)
 			return ia / ib
 		}
+
+		if op == ">" {
+			ia := a.(float64)
+			ib := b.(float64)
+			return ia > ib
+		}
+
+		if op == ">=" {
+			ia := a.(float64)
+			ib := b.(float64)
+			return ia >= ib
+		}
+
+		if op == "<" {
+			ia := a.(float64)
+			ib := b.(float64)
+			return ia < ib
+		}
+		if op == "<=" {
+			ia := a.(float64)
+			ib := b.(float64)
+			return ia <= ib
+		}
 	}
 
 	if _, yes := a.(string); yes {
@@ -349,6 +522,26 @@ func op_values(op string, a interface{}, b interface{}) (value interface{}) {
 			ia := a.(string)
 			ib := b.(string)
 			return ia + ib
+		}
+		if op == ">" {
+			ia := a.(string)
+			ib := b.(string)
+			return ia > ib
+		}
+		if op == ">=" {
+			ia := a.(string)
+			ib := b.(string)
+			return ia >= ib
+		}
+		if op == "<" {
+			ia := a.(string)
+			ib := b.(string)
+			return ia < ib
+		}
+		if op == "<=" {
+			ia := a.(string)
+			ib := b.(string)
+			return ia <= ib
 		}
 	}
 
@@ -364,85 +557,23 @@ func op_values(op string, a interface{}, b interface{}) (value interface{}) {
 			return ia && ib
 		}
 	}
+
+	if op == "==" {
+		return a == b
+	}
+	if op == "!=" {
+		return a != b
+	}
 	return nil
-}
-
-func term() (value Value) {
-	left := primary()
-	// fmt.Println("--------", left.value) // todo
-
-	var ops []string
-	switch left.value_type {
-	case INT_64:
-		ops = append(ops, "*", "/")
-	case FLOAT_64:
-		ops = append(ops, "*", "/")
-	case BOOL:
-		ops = append(ops, "&&")
-	}
-
-NEXT:
-	for {
-		op := src.next_token()
-
-		for _, op_item := range ops {
-			// fmt.Println("--------", op_item) // todo
-			if op.name != op_item {
-				continue
-			}
-			right := primary()
-			// fmt.Println("--------", right.value) // todo
-			mul := op_values(op.name, left.value, right.value)
-			left.value = mul
-			continue NEXT
-		}
-		src.unget_token(op)
-		return left
-	}
-}
-
-func primary() (value Value) {
-	token := src.next_token()
-	// fmt.Println("------------", token.name)
-
-	switch token.token_type {
-	// 标识符
-	case IDENTIFIER:
-		value = *symbol_table[token.name]
-	// 数值
-	case NUMBER:
-		switch token.value.(type) {
-		case uint64:
-			value.value_type = INT_64
-		case float64:
-			value.value_type = FLOAT_64
-		}
-		value.value = token.value
-	// 布尔
-	case BOOLEAN:
-		value.value_type = BOOL
-		value.value = token.value
-	// 字符串
-	case STRING:
-		value.value_type = CHARS
-		value.value = token.name
-	default:
-		switch token.name {
-		case "-":
-			value = primary()
-			value.value = op_values("-", value.value, nil)
-		case "(":
-			value = expression()
-			token = src.next_token()
-			if token.name != ")" {
-				panic(") expected")
-			}
-		case "!":
-		}
-	}
-	return value
 }
 
 func main() {
 	run()
+	/*for {
+		token := src.next_token()
+		fmt.Println(token)
+		if token.token_type == NOTYPE || token.token_type == UNKNOWN {
+			break
+		}
+	}*/
 }
