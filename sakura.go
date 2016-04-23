@@ -56,15 +56,35 @@ func (src *source) unget_token(token Token) {
 }
 
 func (src *source) next_token() (tok Token) {
-	// predeclared identifier
+	var token_type int = NOTYPE
+	var token []rune
+
+	// post 处理
 	defer func() {
-		switch tok.name {
-		case "true":
-			tok.token_type = BOOLEAN
-			tok.value = true
-		case "false":
-			tok.token_type = BOOLEAN
-			tok.value = false
+		if tok.token_type == NOTYPE {
+			tok.token_type = token_type
+		}
+		if tok.value == nil {
+			switch tok.token_type {
+			case NUMBER:
+				// 数值转换
+				if strings.Contains(tok.name, ".") {
+					tok.value, _ = strconv.ParseFloat(tok.name, 64)
+				} else {
+					tok.value, _ = strconv.ParseInt(tok.name, 10, 64)
+				}
+			case IDENTIFIER:
+				// 预定义标识符
+				switch tok.name {
+				case "true":
+					tok.token_type = BOOLEAN
+					tok.value = true
+				case "false":
+					tok.token_type = BOOLEAN
+					tok.value = false
+				}
+			default:
+			}
 		}
 	}()
 
@@ -74,110 +94,83 @@ func (src *source) next_token() (tok Token) {
 		src.buffer = nil
 		return tok
 	}
-
-	var token_type int = NOTYPE
-	var token []rune
 	for {
 		ch, _, err := src.ReadRune()
 		if err != nil {
 			return tok
 		}
 
-		// 字符串
-		if token_type == NOTYPE && ch == '"' {
-			token_type = STRING
-			continue
-		}
-		if token_type == STRING {
-			if ch != '"' {
+		switch token_type {
+		case NOTYPE: // 无类型
+			switch ch {
+			case '\t', '\n', '\v', '\f', '\r', ' ': // 空白字符
+			case '(', ')', '{', '}', '+', '-', '*', '/', '=', ';': // 分隔符
+				token_type = DELIMITER
+				tok.name = string(append(token, ch))
+				return tok
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.':
+				token_type = NUMBER
 				token = append(token, ch)
-				continue
+			case '"': // "，字符串
+				token_type = STRING
+			case '&': // &, && 操作符
+				ch, _, _ := src.ReadRune()
+				switch ch {
+				case '&':
+					tok.name = "&&"
+				default:
+					src.UnreadRune()
+					tok.name = "&"
+				}
+				token_type = OPERATOR
+				return tok
+			case '|': // |, || 操作符
+				ch, _, _ := src.ReadRune()
+				switch ch {
+				case '|':
+					tok.name = "||"
+				default:
+					src.UnreadRune()
+					tok.name = "|"
+				}
+				token_type = OPERATOR
+				return tok
+			default:
+				if unicode.IsLetter(ch) {
+					token_type = IDENTIFIER
+					token = append(token, ch)
+				} else {
+					panic("some special char encountered.")
+				}
+			}
+
+		case STRING:
+			switch ch {
+			case '"':
+				tok.name = string(token)
+				return tok
+			default:
+				token = append(token, ch)
+			}
+		case NUMBER:
+			switch ch {
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.':
+				token = append(token, ch)
+			default:
+				src.UnreadRune() // 回退一个字符
+				tok.name = string(token)
+				return tok
+			}
+		case IDENTIFIER:
+			if unicode.IsLetter(ch) || unicode.IsDigit(ch) {
+				token = append(token, ch)
 			} else {
-				tok.token_type = token_type
+				src.UnreadRune() // 回退一个字符
 				tok.name = string(token)
 				return tok
 			}
 		}
-
-		// 空白字符
-		if unicode.IsSpace(ch) && token_type == NOTYPE {
-			continue
-		}
-
-		// && ||
-		if ch == '&' && token_type == NOTYPE {
-			ch, _, _ := src.ReadRune()
-			if ch == '&' {
-				tok.token_type = OPERATOR
-				tok.name = string(append(token, '&', '&'))
-				return tok
-			} else {
-				src.UnreadRune()
-				tok.token_type = OPERATOR
-				tok.name = string(append(token, '&'))
-				return tok
-			}
-		}
-
-		if ch == '|' && token_type == NOTYPE {
-			ch, _, _ := src.ReadRune()
-			if ch == '|' {
-				tok.token_type = OPERATOR
-				tok.name = string(append(token, '|', '|'))
-				return tok
-			} else {
-				src.UnreadRune()
-				tok.token_type = OPERATOR
-				tok.name = string(append(token, '|'))
-				return tok
-			}
-		}
-
-		// 分隔符
-		switch ch {
-		case '(', ')', '{', '}', '+', '-', '*', '/', '=', ';':
-			if token_type == NOTYPE {
-				tok.token_type = DELIMITER
-				tok.name = string(append(token, ch))
-				return tok
-			}
-		}
-
-		// 数字
-		if (unicode.IsDigit(ch) || ch == '.') && (token_type == NOTYPE || token_type == NUMBER) {
-			token_type = NUMBER
-			token = append(token, ch)
-			continue
-		}
-
-		// 标识符
-		if unicode.IsLetter(ch) && token_type == NOTYPE ||
-			(unicode.IsLetter(ch) || unicode.IsDigit(ch) && token_type == IDENTIFIER) {
-			token_type = IDENTIFIER
-			token = append(token, ch)
-			continue
-		}
-
-		if token_type == NOTYPE {
-			panic("some special char encountered.")
-		}
-
-		src.UnreadRune() // 回退一个字符
-
-		tok.token_type = token_type
-		tok.name = string(token)
-
-		// 整数、浮点数
-		if tok.token_type == NUMBER {
-			if strings.Contains(tok.name, ".") {
-				tok.value, _ = strconv.ParseFloat(tok.name, 64)
-			} else {
-				tok.value, _ = strconv.ParseInt(tok.name, 10, 64)
-			}
-		}
-		return tok
 	}
-	return tok
 }
 
 var src *source = &source{bufio.NewReader(os.Stdin), nil} // source
@@ -186,7 +179,7 @@ var symbol_table map[string]*Value = make(map[string]*Value, 20)
 func run() {
 	for {
 		token := src.next_token()
-		if token.token_type == UNKNOWN {
+		if token.token_type == NOTYPE {
 			break
 		}
 		switch token.name {
@@ -203,7 +196,7 @@ func run() {
 
 func statement() {
 	token := src.next_token()
-	if token.token_type == UNKNOWN {
+	if token.token_type == NOTYPE {
 		return
 	}
 	switch string(token.name) {
@@ -212,6 +205,7 @@ func statement() {
 		if err != nil {
 			fmt.Println("error encounter:", err.Error())
 		}
+		// fmt.Println("statement:", symbol_table)
 	default:
 		src.unget_token(token)
 		value := expression()
@@ -219,7 +213,7 @@ func statement() {
 	}
 	token = src.next_token()
 	if token.token_type != DELIMITER || token.name != ";" {
-		fmt.Println("statement: expect ; ")
+		// fmt.Println("statement: expect ; ")
 		src.unget_token(token)
 	}
 }
@@ -271,16 +265,13 @@ NEXT:
 
 		for _, op_item := range ops {
 			// fmt.Println("----", op_item) // todo
-
 			if op.name != op_item {
 				continue
 			}
 			right := term()
 			// fmt.Println("----", right.value) // todo
-
 			sum := op_values(op.name, left.value, right.value)
 			// fmt.Println("----", sum) // todo
-
 			left.value = sum
 			continue NEXT
 		}
@@ -316,6 +307,12 @@ func op_values(op string, a interface{}, b interface{}) (value interface{}) {
 			ia := a.(int64)
 			ib := b.(int64)
 			return ia / ib
+		}
+
+		if op == "%" {
+			ia := a.(int64)
+			ib := b.(int64)
+			return ia % ib
 		}
 	}
 
@@ -390,13 +387,11 @@ NEXT:
 
 		for _, op_item := range ops {
 			// fmt.Println("--------", op_item) // todo
-
 			if op.name != op_item {
 				continue
 			}
 			right := primary()
 			// fmt.Println("--------", right.value) // todo
-
 			mul := op_values(op.name, left.value, right.value)
 			left.value = mul
 			continue NEXT
