@@ -222,7 +222,7 @@ func Run(reader io.Reader) {
 		case "quit":
 			return
 		case "help":
-			fmt.Println("hehe")
+			help()
 			continue
 		}
 		src.unget_token(token)
