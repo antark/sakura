@@ -261,9 +261,11 @@ func declaration() error {
 	if key.token_type != types.IDENTIFIER {
 		err = &Exception{"declare: name expected"}
 	}
-	if symbol_table[key.name] != nil {
-		err = &Exception{"declare: name declare twice"}
-	}
+	/*
+		if symbol_table[key.name] != nil {
+			err = &Exception{"declare: name declare twice"}
+		}
+	*/
 
 	equal := src.next_token()
 	if equal.token_type != types.IDENTIFIER && equal.name != "=" {
