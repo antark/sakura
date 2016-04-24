@@ -34,54 +34,36 @@ type source struct {
 	buffer *Token
 }
 
-const (
-	NOTYPE     = iota // 无类型
-	DELIMITER         // 分隔符
-	NUMBER            // 整数
-	BOOLEAN           // 布尔类型
-	STRING            // 字符串
-	OPERATOR          // 操作符
-	IDENTIFIER        // 标识符
-	UNKNOWN           // 未知类型
-)
-
-const (
-	INT_64 = iota
-	FLOAT_64
-	BOOL
-	CHARS
-)
-
 func (src *source) unget_token(token Token) {
 	src.buffer = &token
 }
 
 func (src *source) next_token() (tok Token) {
-	var token_type int = NOTYPE
+	var token_type int = types.NOTYPE
 	var token []rune
 
 	// post 处理
 	defer func() {
-		if tok.token_type == NOTYPE {
+		if tok.token_type == types.NOTYPE {
 			tok.token_type = token_type
 		}
 		if tok.value == nil {
 			switch tok.token_type {
-			case NUMBER:
+			case types.NUMBER:
 				// 数值转换
 				if strings.Contains(tok.name, ".") {
 					tok.value, _ = strconv.ParseFloat(tok.name, 64)
 				} else {
 					tok.value, _ = strconv.ParseInt(tok.name, 10, 64)
 				}
-			case IDENTIFIER:
+			case types.IDENTIFIER:
 				// 预定义标识符
 				switch tok.name {
 				case "true":
-					tok.token_type = BOOLEAN
+					tok.token_type = types.BOOLEAN
 					tok.value = true
 				case "false":
-					tok.token_type = BOOLEAN
+					tok.token_type = types.BOOLEAN
 					tok.value = false
 				}
 			default:
@@ -102,18 +84,22 @@ func (src *source) next_token() (tok Token) {
 		}
 
 		switch token_type {
-		case NOTYPE: // 无类型
+		case types.NOTYPE: // 无类型
 			switch ch {
 			case '\t', '\n', '\v', '\f', '\r', ' ': // 空白字符
-			case '(', ')', '{', '}', '+', '-', '*', '/', ';': // 分隔符
-				token_type = DELIMITER
+			case '(', ')', '{', '}', ';': // 分隔符
+				token_type = types.DELIMITER
 				tok.name = string(append(token, ch))
 				return tok
 			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.':
-				token_type = NUMBER
+				token_type = types.NUMBER
 				token = append(token, ch)
 			case '"': // "，字符串
-				token_type = STRING
+				token_type = types.CHARS
+			case '+', '-', '*', '/', '%', '^': // + - * / %
+				token_type = types.OPERATOR
+				tok.name = string(append(token, ch))
+				return tok
 			case '&': // &, && 操作符
 				ch, _, _ := src.ReadRune()
 				switch ch {
@@ -123,7 +109,7 @@ func (src *source) next_token() (tok Token) {
 					src.UnreadRune()
 					tok.name = "&"
 				}
-				token_type = OPERATOR
+				token_type = types.OPERATOR
 				return tok
 			case '|': // |, || 操作符
 				ch, _, _ := src.ReadRune()
@@ -134,7 +120,7 @@ func (src *source) next_token() (tok Token) {
 					src.UnreadRune()
 					tok.name = "|"
 				}
-				token_type = OPERATOR
+				token_type = types.OPERATOR
 				return tok
 			case '!': // !, != 操作符
 				ch, _, _ := src.ReadRune()
@@ -145,7 +131,7 @@ func (src *source) next_token() (tok Token) {
 					src.UnreadRune()
 					tok.name = "!"
 				}
-				token_type = OPERATOR
+				token_type = types.OPERATOR
 				return tok
 			case '=': // =, == 操作符
 				ch, _, _ := src.ReadRune()
@@ -156,9 +142,9 @@ func (src *source) next_token() (tok Token) {
 					src.UnreadRune()
 					tok.name = "="
 				}
-				token_type = OPERATOR
+				token_type = types.OPERATOR
 				return tok
-			case '>': // !, != 操作符
+			case '>': // >, >=, >> 操作符
 				ch, _, _ := src.ReadRune()
 				switch ch {
 				case '=':
@@ -169,9 +155,9 @@ func (src *source) next_token() (tok Token) {
 					src.UnreadRune()
 					tok.name = ">"
 				}
-				token_type = OPERATOR
+				token_type = types.OPERATOR
 				return tok
-			case '<': // !, != 操作符
+			case '<': // <, <=, << 操作符
 				ch, _, _ := src.ReadRune()
 				switch ch {
 				case '=':
@@ -182,18 +168,18 @@ func (src *source) next_token() (tok Token) {
 					src.UnreadRune()
 					tok.name = "<"
 				}
-				token_type = OPERATOR
+				token_type = types.OPERATOR
 				return tok
 			default:
 				if unicode.IsLetter(ch) {
-					token_type = IDENTIFIER
+					token_type = types.IDENTIFIER
 					token = append(token, ch)
 				} else {
 					panic("some special char encountered.")
 				}
 			}
 
-		case STRING:
+		case types.CHARS:
 			switch ch {
 			case '"':
 				tok.name = string(token)
@@ -201,7 +187,7 @@ func (src *source) next_token() (tok Token) {
 			default:
 				token = append(token, ch)
 			}
-		case NUMBER:
+		case types.NUMBER:
 			switch ch {
 			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.':
 				token = append(token, ch)
@@ -210,7 +196,7 @@ func (src *source) next_token() (tok Token) {
 				tok.name = string(token)
 				return tok
 			}
-		case IDENTIFIER:
+		case types.IDENTIFIER:
 			if unicode.IsLetter(ch) || unicode.IsDigit(ch) {
 				token = append(token, ch)
 			} else {
@@ -229,7 +215,7 @@ func Run(reader io.Reader) {
 	src = &source{bufio.NewReader(reader), nil} // source
 	for {
 		token := src.next_token()
-		if token.token_type == NOTYPE {
+		if token.token_type == types.NOTYPE {
 			break
 		}
 		switch token.name {
@@ -246,7 +232,7 @@ func Run(reader io.Reader) {
 
 func statement() {
 	token := src.next_token()
-	if token.token_type == NOTYPE {
+	if token.token_type == types.NOTYPE {
 		return
 	}
 	switch string(token.name) {
@@ -262,7 +248,7 @@ func statement() {
 		fmt.Println(value.value)
 	}
 	token = src.next_token()
-	if token.token_type != DELIMITER || token.name != ";" {
+	if token.token_type != types.DELIMITER || token.name != ";" {
 		// fmt.Println("statement: expect ; ")
 		src.unget_token(token)
 	}
@@ -272,7 +258,7 @@ func statement() {
 func declaration() error {
 	var err *Exception
 	key := src.next_token()
-	if key.token_type != IDENTIFIER {
+	if key.token_type != types.IDENTIFIER {
 		err = &Exception{"declare: name expected"}
 	}
 	if symbol_table[key.name] != nil {
@@ -280,7 +266,7 @@ func declaration() error {
 	}
 
 	equal := src.next_token()
-	if equal.token_type != IDENTIFIER && equal.name != "=" {
+	if equal.token_type != types.IDENTIFIER && equal.name != "=" {
 		return Exception{"declare: = expected"}
 	}
 	value := expression(1)
@@ -302,9 +288,11 @@ var op_levels = map[int][]string{
 	5: []string{"*", "/", "%", "<<", ">>", "&"},
 }
 
+var expression_max_level = 5
+
 func expression(level int) (value Value) {
 	var target func(int) Value
-	if level < 5 {
+	if level < expression_max_level {
 		target = expression
 	} else {
 		target = primary
@@ -342,37 +330,36 @@ func primary(level int) (value Value) {
 
 	switch token.token_type {
 	// 标识符
-	case IDENTIFIER:
+	case types.IDENTIFIER:
 		value = *symbol_table[token.name]
 	// 数值
-	case NUMBER:
+	case types.NUMBER:
 		switch token.value.(type) {
 		case uint64:
-			value.value_type = INT_64
+			value.value_type = types.INT_64
 		case float64:
-			value.value_type = FLOAT_64
+			value.value_type = types.FLOAT_64
 		}
 		value.value = token.value
 	// 布尔
-	case BOOLEAN:
-		value.value_type = BOOL
+	case types.BOOLEAN:
+		value.value_type = types.BOOL
 		value.value = token.value
 	// 字符串
-	case STRING:
-		value.value_type = CHARS
+	case types.CHARS:
+		value.value_type = types.STRING
 		value.value = token.name
 	default:
 		switch token.name {
-		case "-":
+		case "+", "-", "!", "^":
 			value = primary(level)
-			value.value = types.Op_values("-", value.value, nil)
+			value.value = types.Op_values(token.name, value.value, nil)
 		case "(":
 			value = expression(1)
 			token = src.next_token()
 			if token.name != ")" {
 				panic(") expected")
 			}
-		case "!":
 		}
 	}
 	return value
