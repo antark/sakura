@@ -1,10 +1,11 @@
 // sakura
-package main
+package sakura
 
 import (
 	"bufio"
 	"fmt"
-	"os"
+	"io"
+	"sakura/types"
 	"strconv"
 	"strings"
 	"unicode"
@@ -221,10 +222,11 @@ func (src *source) next_token() (tok Token) {
 	}
 }
 
-var src *source = &source{bufio.NewReader(os.Stdin), nil} // source
+var src *source // input source
 var symbol_table map[string]*Value = make(map[string]*Value, 20)
 
-func run() {
+func Run(reader io.Reader) {
+	src = &source{bufio.NewReader(reader), nil} // source
 	for {
 		token := src.next_token()
 		if token.token_type == NOTYPE {
@@ -324,7 +326,7 @@ NEXT:
 			}
 			right := target(level + 1)
 			// fmt.Println("----", right.value) // todo
-			sum := op_values(op.name, left.value, right.value)
+			sum := types.Op_values(op.name, left.value, right.value)
 			// fmt.Println("----", sum) // todo
 			left.value = sum
 			continue NEXT
@@ -363,7 +365,7 @@ func primary(level int) (value Value) {
 		switch token.name {
 		case "-":
 			value = primary(level)
-			value.value = op_values("-", value.value, nil)
+			value.value = types.Op_values("-", value.value, nil)
 		case "(":
 			value = expression(1)
 			token = src.next_token()
@@ -374,206 +376,4 @@ func primary(level int) (value Value) {
 		}
 	}
 	return value
-}
-
-func op_values(op string, a interface{}, b interface{}) (value interface{}) {
-	// fmt.Println(op, a, b)
-	if _, yes := a.(int64); yes {
-		if b == nil {
-			return -a.(int64)
-		}
-		if op == "+" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia + ib
-		}
-
-		if op == "-" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia - ib
-		}
-		if op == "*" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia * ib
-		}
-
-		if op == "/" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia / ib
-		}
-
-		if op == "%" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia % ib
-		}
-
-		if op == "<<" {
-			ia := uint64(a.(int64))
-			ib := uint64(b.(int64))
-			return ia << ib
-		}
-
-		if op == ">>" {
-			ia := uint64(a.(int64))
-			ib := uint64(b.(int64))
-			return ia >> ib
-		}
-
-		if op == "&" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia & ib
-		}
-
-		if op == "^" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia ^ ib
-		}
-
-		if op == "|" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia | ib
-		}
-
-		if op == ">" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia > ib
-		}
-
-		if op == "<" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia < ib
-		}
-
-		if op == ">=" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia >= ib
-		}
-
-		if op == "<=" {
-			ia := a.(int64)
-			ib := b.(int64)
-			return ia <= ib
-		}
-	}
-
-	if _, yes := a.(float64); yes {
-		if b == nil {
-			return -a.(float64)
-		}
-		if op == "+" {
-			ia := a.(float64)
-			ib := b.(float64)
-			return ia + ib
-		}
-
-		if op == "-" {
-			ia := a.(float64)
-			ib := b.(float64)
-			return ia - ib
-		}
-		if op == "*" {
-			ia := a.(float64)
-			ib := b.(float64)
-			return ia * ib
-		}
-
-		if op == "/" {
-			ia := a.(float64)
-			ib := b.(float64)
-			return ia / ib
-		}
-
-		if op == ">" {
-			ia := a.(float64)
-			ib := b.(float64)
-			return ia > ib
-		}
-
-		if op == ">=" {
-			ia := a.(float64)
-			ib := b.(float64)
-			return ia >= ib
-		}
-
-		if op == "<" {
-			ia := a.(float64)
-			ib := b.(float64)
-			return ia < ib
-		}
-		if op == "<=" {
-			ia := a.(float64)
-			ib := b.(float64)
-			return ia <= ib
-		}
-	}
-
-	if _, yes := a.(string); yes {
-		if op == "+" {
-			ia := a.(string)
-			ib := b.(string)
-			return ia + ib
-		}
-		if op == ">" {
-			ia := a.(string)
-			ib := b.(string)
-			return ia > ib
-		}
-		if op == ">=" {
-			ia := a.(string)
-			ib := b.(string)
-			return ia >= ib
-		}
-		if op == "<" {
-			ia := a.(string)
-			ib := b.(string)
-			return ia < ib
-		}
-		if op == "<=" {
-			ia := a.(string)
-			ib := b.(string)
-			return ia <= ib
-		}
-	}
-
-	if _, yes := a.(bool); yes {
-		if op == "||" {
-			ia := a.(bool)
-			ib := b.(bool)
-			return ia || ib
-		}
-		if op == "&&" {
-			ia := a.(bool)
-			ib := b.(bool)
-			return ia && ib
-		}
-	}
-
-	if op == "==" {
-		return a == b
-	}
-	if op == "!=" {
-		return a != b
-	}
-	return nil
-}
-
-func main() {
-	run()
-	/*for {
-		token := src.next_token()
-		fmt.Println(token)
-		if token.token_type == NOTYPE || token.token_type == UNKNOWN {
-			break
-		}
-	}*/
 }
