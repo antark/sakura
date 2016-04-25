@@ -69,6 +69,7 @@ func (src *source) next_token() (tok Token) {
 			default:
 			}
 		}
+		//fmt.Println(tok)
 	}()
 
 	// buffer 中有，直接返回
@@ -242,9 +243,41 @@ func statement() {
 			fmt.Println("error encounter:", err.Error())
 		}
 		// fmt.Println("statement:", symbol_table)
+	case "if":
+		condition := expression(expression_min_level).value
+		if _, ok := condition.(bool); !ok {
+			panic("if conditon must be boolean expression.")
+		}
+		yes := condition.(bool)
+		token = src.next_token()
+		if token.name != "{" {
+			panic("if expression, { expected.")
+		}
+		for {
+			token = src.next_token()
+			if token.name == "}" {
+				src.unget_token(token)
+				break
+			} else {
+				src.unget_token(token)
+			}
+			value := expression(expression_min_level)
+			if yes {
+				fmt.Println(value.value)
+			}
+			token = src.next_token()
+			if token.name != ";" {
+				panic("if expression block, ; expected.")
+			}
+		}
+		token = src.next_token()
+		if token.name != "}" {
+			panic("if expression, } expected.")
+		}
+	case "for":
 	default:
 		src.unget_token(token)
-		value := expression(1)
+		value := expression(expression_min_level)
 		fmt.Println(value.value)
 	}
 	token = src.next_token()
@@ -271,7 +304,7 @@ func declaration() error {
 	if equal.token_type != types.IDENTIFIER && equal.name != "=" {
 		return Exception{"declare: = expected"}
 	}
-	value := expression(1)
+	value := expression(expression_min_level)
 
 	if err != nil {
 		return *err
@@ -290,7 +323,10 @@ var op_levels = map[int][]string{
 	5: []string{"*", "/", "%", "<<", ">>", "&"},
 }
 
-var expression_max_level = 5
+var (
+	expression_max_level = 5
+	expression_min_level = 1
+)
 
 func expression(level int) (value Value) {
 	var target func(int) Value
@@ -357,7 +393,7 @@ func primary(level int) (value Value) {
 			value = primary(level)
 			value.value = types.Op_values(token.name, value.value, nil)
 		case "(":
-			value = expression(1)
+			value = expression(expression_min_level)
 			token = src.next_token()
 			if token.name != ")" {
 				panic(") expected")
